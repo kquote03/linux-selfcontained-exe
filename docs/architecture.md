@@ -45,6 +45,17 @@ Decisions made on that basis:
 
 ## Phase 0 — Feasibility spike
 
+**Status: PASSED — GO.** See `docs/phase0-spike-results.md` for full results
+and `docs/phase0-evidence/` for screenshots. Summary: boot chain, NVMe
+storage, RTL8169 networking (DHCP + real outbound internet via ping/curl),
+GUI display, and keyboard input were all confirmed working on RVVM nightly
+`v0.7-git-gce8ca7c` with no workarounds needed. The earlier "no initrd flag"
+concern turned out not to apply, since this project boots a fully-installed
+OS via `fw_payload.bin` (OpenSBI+U-Boot) + extlinux, which loads the initrd
+itself — the same as a normal PC boot chain. RVVM remains the emulator; the
+QEMU fallback seam below is kept as documentation but is not expected to be
+needed.
+
 Before investing in the full XFCE4 image, validate on real target-shaped
 hardware (a Windows VM with no nested virtualization):
 
