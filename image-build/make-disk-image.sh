@@ -39,7 +39,7 @@ DEFAULT linux
 LABEL linux
 	KERNEL /boot/$KERNEL_FILE
 	INITRD /boot/$INITRD_FILE
-	APPEND rw root=UUID=$ROOT_UUID rootwait console=ttyS0 console=tty0
+	APPEND rw root=UUID=$ROOT_UUID rootwait console=ttyS0 console=tty0 mitigations=off
 EOF
 cat "$MNT"/boot/extlinux/extlinux.conf
 

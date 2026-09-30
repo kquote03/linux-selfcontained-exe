@@ -15,6 +15,7 @@ type config struct {
 	RAM        string // e.g. "2G"
 	Cores      string // e.g. "2"
 	Resolution string // e.g. "1024x768"
+	ExtraArgs  string // raw extra RVVM CLI flags, split on whitespace and appended as-is
 }
 
 func defaultConfig() config {
@@ -22,6 +23,7 @@ func defaultConfig() config {
 		RAM:        "2G",
 		Cores:      "2",
 		Resolution: "1024x768",
+		ExtraArgs:  "",
 	}
 }
 
@@ -65,6 +67,8 @@ func loadConfig() config {
 			cfg.Cores = val
 		case "resolution":
 			cfg.Resolution = val
+		case "extra_args":
+			cfg.ExtraArgs = val
 		}
 	}
 	return cfg

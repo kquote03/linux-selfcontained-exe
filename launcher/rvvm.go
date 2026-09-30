@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // runRVVM launches RVVM as a child process with the given tools/disk paths
@@ -21,6 +22,10 @@ func runRVVM(toolsDir, diskImagePath string, cfg config) error {
 		"-m", cfg.RAM,
 		"-smp", cfg.Cores,
 		"-res", cfg.Resolution,
+		"-nosound", // no audio requirement for this teaching appliance
+	}
+	if strings.TrimSpace(cfg.ExtraArgs) != "" {
+		args = append(args, strings.Fields(cfg.ExtraArgs)...)
 	}
 
 	cmd := exec.Command(exePath, args...)

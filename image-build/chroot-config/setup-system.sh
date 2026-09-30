@@ -79,5 +79,23 @@ for svc in bluetooth.service cups.service cups-browsed.service \
   systemctl mask "$svc" 2>/dev/null || true
 done
 
+# --- initramfs: curated module list instead of MODULES=most ---
+# MODULES=most ships literally every module Debian's generic kernel has,
+# most never needed pre-root-mount, producing a 150+MB initrd loaded on
+# every single student launch. Only storage-path modules belong in the
+# initrd; NIC/input load later via normal udev+depmod post-root regardless
+# of initrd contents. Deliberately NOT using MODULES=dep: that mode infers
+# the needed set from the *currently running* system's loaded modules,
+# which inside this qemu-riscv64 chroot would reflect the build host's own
+# state, not the target's - unreliable in a cross-build chroot. An explicit
+# list is the only safe automatic option here. If a future boot fails with
+# "Unable to mount root fs", revert MODULES= back to "most" below as a
+# one-line fix - no kernel rebuild needed, just re-run update-initramfs.
+sed -i 's/^MODULES=.*/MODULES=list/' /etc/initramfs-tools/initramfs.conf
+cat > /etc/initramfs-tools/modules <<'EOF'
+nvme
+ext4
+EOF
+
 # --- regenerate initramfs after all config changes ---
 update-initramfs -u -k all

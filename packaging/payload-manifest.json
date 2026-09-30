@@ -33,7 +33,7 @@
   },
 
   "kernel": {
-    "_comment": "Custom-built, NOT the stock Debian linux-image-riscv64 package - see docs/phase1-spike-results.md for why (missing CONFIG_DRM_SIMPLEDRM/CONFIG_SYSFB_SIMPLEFB breaks the guest display). Version matches Debian's shipped kernel exactly; config is Debian's own config with display drivers force-enabled and several irrelevant driver trees trimmed. Built by image-build/build-kernel.sh.",
+    "_comment": "Custom-built, NOT the stock Debian linux-image-riscv64 package - see docs/phase1-spike-results.md and docs/phase2-spike-results.md for why (missing CONFIG_DRM_SIMPLEDRM/CONFIG_SYSFB_SIMPLEFB breaks the guest display; missing CONFIG_I2C_HID_OF means RVVM's HID-over-I2C keyboard/mouse never binds). Version matches Debian's shipped kernel exactly; config is Debian's own config with display+input drivers force-enabled, several security-hardening options (AUDIT/IMA/EVM/APPARMOR/FTRACE/KPROBES) disabled, and several irrelevant driver trees trimmed. Built by image-build/build-kernel.sh.",
     "upstreamVersion": "6.12.111",
     "sourceUrl": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.111.tar.xz",
     "localversion": "+deb13-riscv64",

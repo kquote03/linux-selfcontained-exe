@@ -106,13 +106,22 @@ build fully scriptable. Run in order: `image-build/build-rootfs.sh` →
 - Networking via `systemd-networkd` with plain DHCP.
 - Autologin via `lightdm` (`autologin-user=student`, in `sudo` group — "no
   admin rights" refers to the Windows host, not the guest).
-- `initramfs-tools`: start with `MODULES=most`; prune once Phase 0/1 confirm
-  exactly which modules are needed.
+- `initramfs-tools`: curated `MODULES=list` (just `nvme`+`ext4`, the only
+  modules actually needed to mount root — NIC/input load post-boot via
+  normal udev regardless of initrd contents) instead of Debian's default
+  `MODULES=most`, which produced a 156MB initrd. See
+  `docs/phase2-spike-results.md` for the before/after size and the
+  fallback if a pruned boot ever fails (`MODULES=most` is a one-line
+  revert, no kernel rebuild needed).
 - Disable `apt-daily*.timer`, `bluetooth`, `cups`, `ModemManager`,
   `avahi-daemon`, `man-db.timer`.
-- Image format: single raw ext4 filesystem, no partition table, no
-  bootloader (RVVM's `-k` direct-kernel-boot skips U-Boot/GRUB entirely).
-  Compress the shipped copy with `zstd -19`/`xz -9`.
+- Image format: GPT-partitioned single ext4 filesystem with an extlinux
+  bootloader config (`image-build/make-disk-image.sh` writes
+  `/boot/extlinux/extlinux.conf`). RVVM is invoked with `-i <image>` (not
+  `-k`), so firmware/U-Boot/extlinux load the kernel+initrd exactly like a
+  normal PC boot chain — matches the Phase 0 description above, not the
+  bare direct-kernel-payload path. Compress the shipped copy with
+  `zstd -19`.
 - No inbound SSH port-forwarding by default (not a stated requirement) — kept
   as an opt-in config flag.
 
@@ -153,7 +162,10 @@ expectations, not yet tuned or measured on genuinely weak target hardware.
   → decompress a fresh copy of the pristine disk image into a new per-run
   scratch dir every launch (zstd, via `github.com/klauspost/compress/zstd`)
   → launch RVVM as a child process with conservative, `config.ini`-overridable
-  defaults (`launcher/config.go`) → on exit, delete the per-run scratch dir.
+  defaults (`launcher/config.go`; RAM/cores/resolution, plus a fixed
+  `-nosound` since this appliance has no audio requirement, plus an
+  optional `extra_args` passthrough for further RVVM flag tuning without a
+  launcher rebuild) → on exit, delete the per-run scratch dir.
 - No admin rights: only touches `%LOCALAPPDATA%`, spawns a plain child
   process, no registry/service/`Program Files` writes.
 - Ship `THIRD_PARTY_NOTICES/` for RVVM (GPL-3.0/MPL-2.0), OpenSBI (BSD-2), and

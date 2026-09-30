@@ -49,6 +49,27 @@ cp "$DEBIAN_CONFIG" .config
 ./scripts/config --enable CONFIG_SYSFB_SIMPLEFB
 ./scripts/config --enable CONFIG_DRM
 ./scripts/config --enable CONFIG_DRM_SIMPLEDRM
+# RVVM's emulated keyboard/mouse is NOT a Goldfish device (that hypothesis
+# was wrong - see docs/phase1-spike-results.md correction note). Dumping
+# RVVM's actual generated device tree (`rvvm -dumpdtb`) shows an OpenCores
+# I2C controller (compatible "opencores,i2c-ocores") with three child nodes
+# compatible "hid-over-i2c" - i.e. RVVM exposes keyboard/mouse/touch as
+# HID-over-I2C devices described via the device tree, not via any Goldfish
+# node (goldfish_rtc is the only actual Goldfish device RVVM exposes).
+# The Debian stock config has the whole chain as modules, and critically is
+# missing CONFIG_I2C_HID_OF entirely - that's the specific glue driver that
+# matches a DT "hid-over-i2c" node to the i2c-hid core (CONFIG_I2C_HID_ACPI
+# is the sibling driver for ACPI-described devices, irrelevant here since
+# ACPI is disabled on this platform). Without I2C_HID_OF, none of the three
+# input devices ever bind, regardless of I2C_HID/I2C_OCORES/HID being
+# present. Built-in (not modules) for the same reason as DRM_SIMPLEDRM: the
+# lightdm greeter needs keyboard/mouse immediately, before any modprobe/udev
+# module-loading race could resolve.
+./scripts/config --enable CONFIG_I2C_OCORES
+./scripts/config --enable CONFIG_HID
+./scripts/config --enable CONFIG_HID_GENERIC
+./scripts/config --enable CONFIG_I2C_HID
+./scripts/config --enable CONFIG_I2C_HID_OF
 ./scripts/config --set-str CONFIG_LOCALVERSION "$LOCALVERSION"
 ./scripts/config --disable CONFIG_LOCALVERSION_AUTO
 
@@ -68,12 +89,28 @@ for v in $(grep "^CONFIG_NET_VENDOR_.*=y" .config | sed 's/^CONFIG_//;s/=y//'); 
   [ "$v" = "NET_VENDOR_REALTEK" ] || ./scripts/config --disable "CONFIG_$v"
 done
 
+echo "=== Disabling per-syscall/per-access security overhead not needed for a single-user ephemeral teaching VM ==="
+./scripts/config --disable CONFIG_AUDIT
+./scripts/config --disable CONFIG_IMA
+./scripts/config --disable CONFIG_EVM
+./scripts/config --disable CONFIG_SECURITY_APPARMOR
+./scripts/config --disable CONFIG_FTRACE
+./scripts/config --disable CONFIG_KPROBES
+
 make ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- olddefconfig
 
 echo "=== Verifying critical options survived ==="
 grep -qE "^CONFIG_DRM_SIMPLEDRM=y" .config || { echo "ERROR: CONFIG_DRM_SIMPLEDRM not enabled"; exit 1; }
 grep -qE "^CONFIG_SYSFB_SIMPLEFB=y" .config || { echo "ERROR: CONFIG_SYSFB_SIMPLEFB not enabled"; exit 1; }
 grep -qE "^CONFIG_R8169=" .config || { echo "ERROR: CONFIG_R8169 missing (RVVM's NIC driver)"; exit 1; }
+grep -qE "^CONFIG_I2C_OCORES=y" .config || { echo "ERROR: CONFIG_I2C_OCORES not enabled"; exit 1; }
+grep -qE "^CONFIG_I2C_HID=y" .config || { echo "ERROR: CONFIG_I2C_HID not enabled"; exit 1; }
+grep -qE "^CONFIG_I2C_HID_OF=y" .config || { echo "ERROR: CONFIG_I2C_HID_OF not enabled (this is the glue driver for RVVM's DT-described hid-over-i2c input devices)"; exit 1; }
+
+echo "=== Verifying perf-hardening options were dropped (soft check - informational only) ==="
+for opt in CONFIG_AUDIT CONFIG_IMA CONFIG_EVM CONFIG_SECURITY_APPARMOR; do
+  grep -qE "^# ${opt} is not set" .config || echo "WARN: $opt still enabled after olddefconfig (a dependency may have forced it back on) - not blocking the build"
+done
 
 echo "=== Building kernel + modules + dtbs (this takes a while, even cross-compiled natively) ==="
 make -j"$JOBS" ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- Image modules dtbs

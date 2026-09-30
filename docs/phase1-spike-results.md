@@ -76,6 +76,26 @@ project's real dev machine (no hardware virtualization).
   this minimal XFCE install. A real user with a physical mouse/keyboard on
   the actual window is expected to have no such issue; this needs a human
   to confirm rather than further scripted automation.
+
+  **Correction (Round 2):** this hypothesis was wrong. Initially
+  root-caused (incorrectly) to a missing `CONFIG_KEYBOARD_GOLDFISH_EVENTS`
+  driver, on the assumption that RVVM's input follows the same
+  Android-emulator "Goldfish" device family as `goldfish_rtc` (which does
+  work). That assumption was itself wrong and superseded almost immediately
+  — see the second correction below. The login-screen keyboard input that
+  *did* work was on a completely different kernel (the prebuilt Arch test
+  image from Phase 0), never actually exercised on our own build until this
+  was investigated.
+
+  **Correction 2 (Round 2, same session):** the Goldfish hypothesis was
+  also wrong. Dumping RVVM's actual generated device tree (`rvvm
+  -dumpdtb`) shows no Goldfish input node at all — RVVM exposes
+  keyboard/mouse as three `hid-over-i2c` devices on an OpenCores I2C
+  controller. The real missing piece was `CONFIG_I2C_HID_OF`, the
+  device-tree glue driver for HID-over-I2C (distinct from
+  `CONFIG_I2C_HID_ACPI`, which is for ACPI-described devices and doesn't
+  apply here). See `docs/phase2-spike-results.md` for the full
+  investigation and verification evidence.
 - `curl`/`ping`/`apt update` from a terminal inside this specific XFCE4
   image (confirmed separately on the plain Arch test image in Phase 0; the
   same RVVM networking path is unchanged here, so expected to work, but not
