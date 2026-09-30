@@ -65,10 +65,17 @@ project's real dev machine (no hardware virtualization).
 
 ## What's not yet validated
 
-- Mouse click precision in the guest (keyboard input is confirmed reliable
-  via Phase 0 and this spike's autologin; mouse click testing here was
-  imprecise due to automated-test coordinate guessing, not a product issue —
-  not worth chasing further before a human tests with a real mouse).
+- Mouse/keyboard-shortcut interaction inside the XFCE4 session specifically.
+  Synthetic mouse clicks (`SetCursorPos`+`mouse_event`) and the `Alt+F2`
+  app-finder shortcut both had no visible effect when tested against the
+  running desktop, despite login-screen keyboard input (typing the
+  username/password) working reliably. This looks like a synthetic-input
+  injection limitation of this test setup — RVVM likely expects relative
+  mouse deltas or real window-focused hardware input rather than absolute
+  `SetCursorPos` injection, and Alt+F2 may simply not be bound by default in
+  this minimal XFCE install. A real user with a physical mouse/keyboard on
+  the actual window is expected to have no such issue; this needs a human
+  to confirm rather than further scripted automation.
 - `curl`/`ping`/`apt update` from a terminal inside this specific XFCE4
   image (confirmed separately on the plain Arch test image in Phase 0; the
   same RVVM networking path is unchanged here, so expected to work, but not
