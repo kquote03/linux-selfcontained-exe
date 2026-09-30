@@ -36,7 +36,10 @@ more in the GUI run below.
     would on a normal PC — RVVM's CLI never needs to know about the initrd
     at all. Debian's stock `linux-image-riscv64` package (modular, relying
     on `initramfs-tools`) will boot the same way. No custom kernel build is
-    needed.
+    needed **for the boot/storage chain specifically**. (Update from Phase
+    1: a custom kernel build turned out to be necessary anyway, for an
+    unrelated reason — the stock kernel lacks the display driver needed for
+    the GUI to render at all. See `docs/phase1-spike-results.md`.)
 - Boot-to-login time: **~26 seconds** of kernel time (plus a few seconds of
   OpenSBI/U-Boot overhead) — well within a tolerable classroom wait, on pure
   software CPU emulation with no acceleration.

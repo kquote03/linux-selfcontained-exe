@@ -80,10 +80,21 @@ hardware (a Windows VM with no nested virtualization):
 
 ## Guest image build pipeline
 
+**Status: PASSED — full XFCE4 desktop confirmed rendering.** See
+`docs/phase1-spike-results.md` and `docs/phase1-evidence/`. Two real
+problems were found and fixed along the way: a plymouth boot-splash hang
+(fixed by removing plymouth — not needed for a kiosk appliance), and a
+missing `CONFIG_DRM_SIMPLEDRM`/`CONFIG_SYSFB_SIMPLEFB` in Debian's stock
+kernel, which meant Linux never took over the display U-Boot hands off
+(fixed by cross-compiling a matching-version kernel with those options
+enabled — see `image-build/build-kernel.sh`). Both fixes are now baked into
+the scripted pipeline below, not manual steps.
+
 Built via cross-arch debootstrap + qemu-user-static chroot on a Linux/WSL
 box — not an interactive install inside the emulator — to avoid paying
 unaccelerated riscv64 boot time on every image iteration, and to keep the
-build fully scriptable.
+build fully scriptable. Run in order: `image-build/build-rootfs.sh` →
+`image-build/build-kernel.sh` → `image-build/make-disk-image.sh`.
 
 - `debootstrap --arch=riscv64 --variant=minbase --foreign trixie ...`,
   second-stage via `qemu-riscv64-static` in a chroot/`systemd-nspawn`.
