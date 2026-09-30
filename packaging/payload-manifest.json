@@ -1,0 +1,44 @@
+{
+  "_comment": "Pinned sources/versions for reproducible builds. Large binaries are never committed to git - fetch/build scripts in image-build/ use these to rebuild deterministically. Update this file whenever a pinned version changes.",
+
+  "rvvm": {
+    "_comment": "RVVM has no stable release channel the maintainer recommends using (v0.6 is explicitly marked superseded) - pin a specific nightly CI artifact by commit, not a tag.",
+    "repo": "https://github.com/LekKit/RVVM",
+    "branch": "staging",
+    "commit": "ce8ca7c00ba4058e5f26811057573b3ff23e9316",
+    "reportedVersion": "v0.7-git-gce8ca7c",
+    "artifactWorkflowRunId": "36666213477",
+    "artifactName": "rvvm_windows_x86_64",
+    "nightlyLinkUrl": "https://nightly.link/LekKit/RVVM/actions/runs/36666213477/rvvm_windows_x86_64.zip",
+    "license": ["GPL-3.0 (rvvm-cli)", "MPL-2.0 (librvvm)"],
+    "files": ["rvvm_x86_64.exe", "librvvm.dll"]
+  },
+
+  "firmware": {
+    "_comment": "OpenSBI + U-Boot combined firmware, used as RVVM's M-mode positional firmware argument. Enables the standard extlinux boot path (see docs/phase0-spike-results.md) rather than RVVM's bare -k direct-kernel path.",
+    "repo": "https://github.com/LekKit/archriscv-scriptlet",
+    "release": "2026.01",
+    "url": "https://github.com/LekKit/archriscv-scriptlet/releases/download/2026.01/fw_payload.bin",
+    "license": "BSD-2-Clause (OpenSBI)",
+    "file": "fw_payload.bin"
+  },
+
+  "guestOS": {
+    "distro": "Debian",
+    "suite": "trixie",
+    "release": "13",
+    "arch": "riscv64",
+    "mirror": "http://deb.debian.org/debian",
+    "_comment": "First Debian release with official riscv64 support. Built via image-build/build-rootfs.sh (cross-arch debootstrap, not booting a VM)."
+  },
+
+  "kernel": {
+    "_comment": "Custom-built, NOT the stock Debian linux-image-riscv64 package - see docs/phase1-spike-results.md for why (missing CONFIG_DRM_SIMPLEDRM/CONFIG_SYSFB_SIMPLEFB breaks the guest display). Version matches Debian's shipped kernel exactly; config is Debian's own config with display drivers force-enabled and several irrelevant driver trees trimmed. Built by image-build/build-kernel.sh.",
+    "upstreamVersion": "6.12.111",
+    "sourceUrl": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.111.tar.xz",
+    "localversion": "+deb13-riscv64",
+    "fullVersion": "6.12.111+deb13-riscv64",
+    "configSeededFrom": "Debian's linux-image-riscv64 package config for the same version",
+    "license": "GPL-2.0"
+  }
+}

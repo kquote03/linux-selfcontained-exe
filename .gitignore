@@ -14,6 +14,9 @@ packaging/out/
 launcher/*.exe
 launcher/dist/
 
+# Leftover manual test scratch dirs
+scratch_pkgtest/
+
 # Editor/OS cruft
 .vscode/
 *.log

@@ -118,22 +118,42 @@ build fully scriptable. Run in order: `image-build/build-rootfs.sh` →
 
 ## Packaging into the single exe
 
+**Status: PASSED — built, packaged, and end-to-end tested.** `launcher/`
+(Go source) + `packaging/package.ps1` produce a working single-file exe;
+verified with a real (small, fake-content) payload: extraction, caching,
+decompression integrity (checksum-verified), RVVM invocation, clean exit
+cleanup, and stale-run sweep after a simulated crash all confirmed working.
+Not yet re-tested with the real multi-GB disk image end-to-end (should be
+mechanically identical - the code path doesn't care about payload size -
+but worth doing once before distributing to students).
+
 - Launcher: a compiled Go executable (not NSIS/Inno/7z SFX) — the runtime
   needs real logic (per-run scratch copy, crash-cleanup sweep, child-process
-  lifecycle) that installer tools aren't shaped for.
-- Payload too large for `go:embed`; concatenate the compiled launcher with a
-  payload container plus a trailing footer the launcher parses via seek.
-- Runtime flow: locate payload via footer → extract static tool artifacts to
-  a cached `%LOCALAPPDATA%` tools dir → decompress a fresh copy of the
-  pristine disk image into a new per-run scratch dir every launch → launch
-  RVVM as a child process with conservative, overridable defaults → on exit,
-  delete the per-run scratch dir → on every launch, sweep stale scratch dirs
-  from crashed prior runs.
+  lifecycle) that installer tools aren't shaped for. Built with
+  `-ldflags="-s -w -H windowsgui"` (no console window; a native `MessageBox`
+  in `launcher/winerr.go` reports fatal errors instead, since there's no
+  console to print to).
+- Payload too large for `go:embed`; `packaging/package.ps1` concatenates the
+  compiled launcher with a zip payload (`tools/rvvm_x86_64.exe`,
+  `tools/librvvm.dll`, `tools/fw_payload.bin`, `disk.img.zst`, `VERSION`)
+  plus a 64-byte trailing footer (`launcher/payload.go` parses it via seek —
+  magic bytes, payload offset/size, format version).
+- Runtime flow (`launcher/main.go`): locate payload via footer → extract
+  static tool artifacts to a cached `%LOCALAPPDATA%\LinuxLab\tools\<version>`
+  dir (skipped if already present, keyed by the `VERSION` string baked into
+  the payload) → sweep any stale `run-*` dirs left by a crashed prior launch
+  (best-effort `RemoveAll`; a dir whose `disk.img` is still open by a live
+  RVVM process simply fails to delete and is left for next time — relies on
+  Windows' own file locking rather than reimplementing PID liveness checks)
+  → decompress a fresh copy of the pristine disk image into a new per-run
+  scratch dir every launch (zstd, via `github.com/klauspost/compress/zstd`)
+  → launch RVVM as a child process with conservative, `config.ini`-overridable
+  defaults (`launcher/config.go`) → on exit, delete the per-run scratch dir.
 - No admin rights: only touches `%LOCALAPPDATA%`, spawns a plain child
   process, no registry/service/`Program Files` writes.
 - Ship `THIRD_PARTY_NOTICES/` for RVVM (GPL-3.0/MPL-2.0), OpenSBI (BSD-2), and
-  Debian's kernel packages (GPL-2.0). Record the pinned RVVM nightly-artifact
-  commit hash in the manifest.
+  Debian's kernel packages (GPL-2.0). Pinned versions/commits recorded in
+  `packaging/payload-manifest.json`.
 - Expect a Windows SmartScreen warning (unsigned exe) and possibly a Windows
   Firewall prompt (RVVM's usermode networking) on first run — documented for
   instructors, not blockers.
