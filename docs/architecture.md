@@ -118,14 +118,19 @@ build fully scriptable. Run in order: `image-build/build-rootfs.sh` →
 
 ## Packaging into the single exe
 
-**Status: PASSED — built, packaged, and end-to-end tested.** `launcher/`
-(Go source) + `packaging/package.ps1` produce a working single-file exe;
-verified with a real (small, fake-content) payload: extraction, caching,
-decompression integrity (checksum-verified), RVVM invocation, clean exit
-cleanup, and stale-run sweep after a simulated crash all confirmed working.
-Not yet re-tested with the real multi-GB disk image end-to-end (should be
-mechanically identical - the code path doesn't care about payload size -
-but worth doing once before distributing to students).
+**Status: PASSED — built, packaged, and fully end-to-end tested with the
+real multi-GB image.** `launcher/` (Go source) + `packaging/package.ps1`
+produce a working single-file exe. Verified twice: once with a small
+fake-content payload (extraction, caching, checksum-verified decompression
+integrity, RVVM invocation, clean-exit cleanup, stale-run sweep after a
+simulated crash), and once for real - the actual 8GB XFCE4 disk image,
+zstd-compressed to 1.25GB, packaged into a 1.28GB single exe, double-clicked
+cold, and confirmed to boot all the way to the rendered XFCE4 desktop with
+autologin. See `docs/phase1-evidence/05-final-packaged-exe-boot.png`. Rough
+timing observed: ~1-2 minutes for first-run disk image decompression
+(8GB output from a 1.25GB compressed payload) plus ~60-90s guest boot to
+desktop - call it "a few minutes, give it time" for instructor-facing
+expectations, not yet tuned or measured on genuinely weak target hardware.
 
 - Launcher: a compiled Go executable (not NSIS/Inno/7z SFX) — the runtime
   needs real logic (per-run scratch copy, crash-cleanup sweep, child-process

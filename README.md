@@ -17,8 +17,23 @@ let an entire lab of students try Linux without walking through an OS install.
 
 ## Status
 
-Early scaffold — see `docs/phase0-spike-results.md` for the current
-feasibility spike status before any full image build work proceeds.
+**Working end-to-end.** A packaged exe (launcher + RVVM + firmware + the
+built Debian/XFCE4 disk image) has been built and confirmed, on this
+project's real dev machine (no hardware virtualization), to boot cold from
+a double-click all the way to an autologin'd, rendered XFCE4 desktop. See
+`docs/phase0-spike-results.md` (emulator feasibility), `docs/phase1-spike-results.md`
+(guest image + the display-driver fix that was needed), and
+`docs/architecture.md`'s "Packaging into the single exe" section for the
+full picture, including what's still open (mouse/keyboard interaction
+inside the running desktop hasn't been confirmed by a human with real
+hardware input; performance on genuinely weak target hardware is
+unmeasured).
+
+To build it yourself: `image-build/build-rootfs.sh` →
+`image-build/build-kernel.sh` → `image-build/make-disk-image.sh` →
+`image-build/compress-disk-image.sh`, then build `launcher/` for
+`windows/amd64` and run `packaging/package.ps1`. See the scripts' own
+comments and `docs/architecture.md` for details.
 
 ## Repo layout
 
