@@ -1,0 +1,20 @@
+# Large fetched/built binary assets — never committed, rebuilt from packaging/payload-manifest.json
+assets/*
+!assets/.gitkeep
+
+# Build outputs
+image-build/out/
+packaging/out/
+*.exe
+*.img
+*.img.zst
+*.img.xz
+
+# Go
+launcher/*.exe
+launcher/dist/
+
+# Editor/OS cruft
+.vscode/
+*.log
+Thumbs.db
