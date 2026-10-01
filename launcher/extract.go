@@ -23,6 +23,50 @@ var toolFiles = []string{
 
 const diskImageEntry = "disk.img.zst"
 
+// progressFunc reports extraction progress: percent is 0-100, status is a
+// short human-readable phase description.
+type progressFunc func(percent int, status string)
+
+// findZipFile looks up a *zip.File by name, giving access to its recorded
+// size without opening/reading it.
+func findZipFile(zr *zip.Reader, name string) (*zip.File, error) {
+	for _, f := range zr.File {
+		if f.Name == name {
+			return f, nil
+		}
+	}
+	return nil, fmt.Errorf("entry not found in payload: %s", name)
+}
+
+func percentOf(done, total int64) int {
+	if total <= 0 {
+		return 0
+	}
+	p := int(done * 100 / total)
+	if p > 100 {
+		p = 100
+	}
+	return p
+}
+
+// countingReader tracks bytes read and invokes onRead after each read.
+type countingReader struct {
+	r      io.Reader
+	n      int64
+	onRead func(n int64)
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if n > 0 {
+		c.n += int64(n)
+		if c.onRead != nil {
+			c.onRead(c.n)
+		}
+	}
+	return n, err
+}
+
 // baseDir returns %LOCALAPPDATA%\LinuxLab, creating it if needed.
 func baseDir() (string, error) {
 	local := os.Getenv("LOCALAPPDATA")
@@ -56,7 +100,7 @@ func payloadVersion(zr *zip.Reader) string {
 // extractTools ensures the static tool files are present in the cached
 // tools directory for this payload version, extracting them only if not
 // already there. Returns the tools directory path.
-func extractTools(zr *zip.Reader, base, version string) (string, error) {
+func extractTools(zr *zip.Reader, base, version string, progress progressFunc) (string, error) {
 	toolsDir := filepath.Join(base, "tools", version)
 	marker := filepath.Join(toolsDir, ".complete")
 
@@ -68,10 +112,29 @@ func extractTools(zr *zip.Reader, base, version string) (string, error) {
 		return "", fmt.Errorf("creating tools dir %s: %w", toolsDir, err)
 	}
 
+	var totalSize int64
+	sizes := make(map[string]int64, len(toolFiles))
 	for _, entry := range toolFiles {
+		f, err := findZipFile(zr, entry)
+		if err != nil {
+			return "", fmt.Errorf("locating %s in payload: %w", entry, err)
+		}
+		sizes[entry] = int64(f.UncompressedSize64)
+		totalSize += sizes[entry]
+	}
+
+	var done int64
+	for _, entry := range toolFiles {
+		if progress != nil {
+			progress(percentOf(done, totalSize), "Extracting emulator files...")
+		}
 		if err := extractZipEntry(zr, entry, filepath.Join(toolsDir, filepath.Base(entry))); err != nil {
 			return "", fmt.Errorf("extracting %s: %w", entry, err)
 		}
+		done += sizes[entry]
+	}
+	if progress != nil {
+		progress(100, "Extracting emulator files...")
 	}
 
 	if err := os.WriteFile(marker, []byte("ok"), 0o644); err != nil {
@@ -104,14 +167,36 @@ func extractZipEntry(zr *zip.Reader, name, destPath string) error {
 // fresh decompress on every launch (rather than a cached copy that gets
 // duplicated) is the simplest way to guarantee every session starts from
 // truly pristine state with no separate integrity check needed.
-func extractDiskImage(zr *zip.Reader, scratchDir string) (string, error) {
-	rc, err := zr.Open(diskImageEntry)
+func extractDiskImage(zr *zip.Reader, scratchDir string, progress progressFunc) (string, error) {
+	f, err := findZipFile(zr, diskImageEntry)
+	if err != nil {
+		return "", fmt.Errorf("locating %s in payload: %w", diskImageEntry, err)
+	}
+	// disk.img.zst is stored uncompressed-by-zip (see packaging/package.ps1),
+	// so UncompressedSize64 here is just the .zst file's own byte size - the
+	// most reliable progress denominator available without decoding the
+	// zstd stream, since compressed-bytes-read tracks closely enough with
+	// decompression throughput for a progress bar.
+	totalZstBytes := int64(f.UncompressedSize64)
+
+	rc, err := f.Open()
 	if err != nil {
 		return "", fmt.Errorf("opening %s in payload: %w", diskImageEntry, err)
 	}
 	defer rc.Close()
 
-	dec, err := zstd.NewReader(rc)
+	lastPercent := -1
+	cr := &countingReader{r: rc, onRead: func(n int64) {
+		if progress == nil {
+			return
+		}
+		if p := percentOf(n, totalZstBytes); p != lastPercent {
+			lastPercent = p
+			progress(p, "Preparing your Linux session...")
+		}
+	}}
+
+	dec, err := zstd.NewReader(cr)
 	if err != nil {
 		return "", fmt.Errorf("initializing zstd decoder: %w", err)
 	}
@@ -126,6 +211,9 @@ func extractDiskImage(zr *zip.Reader, scratchDir string) (string, error) {
 
 	if _, err := io.Copy(out, dec); err != nil {
 		return "", fmt.Errorf("decompressing disk image: %w", err)
+	}
+	if progress != nil {
+		progress(100, "Preparing your Linux session...")
 	}
 	return destPath, nil
 }

@@ -24,8 +24,11 @@ func run() error {
 		return err
 	}
 
+	pw := newProgressWindow("Linux Lab - Preparing...")
+	defer pw.Close() // safety net: closes it even if an error return skips the explicit Close below
+
 	version := payloadVersion(zr)
-	toolsDir, err := extractTools(zr, base, version)
+	toolsDir, err := extractTools(zr, base, version, pw.SetProgress)
 	if err != nil {
 		return fmt.Errorf("extracting emulator files: %w", err)
 	}
@@ -41,10 +44,12 @@ func run() error {
 
 	sweepStaleRuns(base, runDir) // also sweep on the way in, in case a prior run crashed
 
-	diskImagePath, err := extractDiskImage(zr, runDir)
+	diskImagePath, err := extractDiskImage(zr, runDir, pw.SetProgress)
 	if err != nil {
 		return fmt.Errorf("preparing a fresh Linux session: %w", err)
 	}
+
+	pw.Close() // don't leave it on screen for the entire RVVM session
 
 	cfg := loadConfig()
 
