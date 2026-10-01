@@ -168,7 +168,13 @@ nothing - the real content dominates either way).
   `tools/librvvm.dll`, `tools/fw_payload.bin`, `disk.img.zst`, `VERSION`,
   plus optionally `tools/fast/rvvm_x86_64.exe` + `tools/fast/librvvm.dll` -
   a CPU-targeted RVVM build added in Round 4, see
-  `docs/phase4-spike-results.md`) plus a 64-byte trailing footer
+  `docs/phase4-spike-results.md`. Both RVVM variants are self-built from a
+  pinned, patched source checkout via `image-build/build-rvvm.sh` (Round
+  5 adds `image-build/patches/0001-win32-resizable-scaled-window.patch` -
+  a drag-resizable, aspect-ratio-preserving scaled RVVM window, since the
+  stock RVVM Win32 GUI backend only ever supported a fixed-size,
+  non-resizable window; see `docs/phase5-spike-results.md`) rather than a
+  downloaded prebuilt nightly artifact) plus a 64-byte trailing footer
   (`launcher/payload.go` parses it via seek — magic bytes, payload
   offset/size, format version).
 - Runtime flow (`launcher/main.go`): locate payload via footer → extract

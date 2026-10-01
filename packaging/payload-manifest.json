@@ -2,21 +2,21 @@
   "_comment": "Pinned sources/versions for reproducible builds. Large binaries are never committed to git - fetch/build scripts in image-build/ use these to rebuild deterministically. Update this file whenever a pinned version changes.",
 
   "rvvm": {
-    "_comment": "RVVM has no stable release channel the maintainer recommends using (v0.6 is explicitly marked superseded) - pin a specific nightly CI artifact by commit, not a tag. This is the portable baseline build, shipped at tools/rvvm_x86_64.exe in the payload - always included, always works regardless of host CPU.",
+    "_comment": "RVVM has no stable release channel the maintainer recommends using (v0.6 is explicitly marked superseded) - pin a specific commit, not a tag. Round 4-5 (docs/phase4-spike-results.md, docs/phase5-spike-results.md): both variants below are now self-built from this pinned commit via image-build/build-rvvm.sh (mingw-w64 cross-compile from WSL), replacing the earlier plain nightly-CI-artifact download, so the Round 5 win32 resizable/scaled-window patch (image-build/patches/0001-win32-resizable-scaled-window.patch) is applied to both. This is the portable baseline build (no special CFLAGS), shipped at tools/rvvm_x86_64.exe in the payload - always included, always works regardless of host CPU.",
     "repo": "https://github.com/LekKit/RVVM",
     "branch": "staging",
     "commit": "ce8ca7c00ba4058e5f26811057573b3ff23e9316",
     "reportedVersion": "v0.7-git-gce8ca7c",
-    "artifactWorkflowRunId": "36666213477",
-    "artifactName": "rvvm_windows_x86_64",
-    "nightlyLinkUrl": "https://nightly.link/LekKit/RVVM/actions/runs/36666213477/rvvm_windows_x86_64.zip",
+    "patches": ["image-build/patches/0001-win32-resizable-scaled-window.patch"],
+    "buildScript": "image-build/build-rvvm.sh",
     "license": ["GPL-3.0 (rvvm-cli)", "MPL-2.0 (librvvm)"],
     "files": ["rvvm_x86_64.exe", "librvvm.dll"]
   },
 
   "rvvmFast": {
-    "_comment": "Round 4 (docs/phase4-spike-results.md): same RVVM source, same commit as 'rvvm' above - only the compiler flags differ, so this is a clean optimization-only variant, not a code fork. Self-built (not a nightly CI artifact) via mingw-w64 cross-compile from WSL: `make CC=x86_64-w64-mingw32-gcc CFLAGS=\"-mavx -mavx2 -mfma -maes -msse4.2\" USE_LOCK_DEBUG=0`. Deliberately does NOT target BMI1/BMI2 (no -march= preset used) - a real target machine's CPU-Z report showed BMI1/BMI2 masked by its hypervisor despite the underlying silicon supporting it; using a named -march=haswell/broadwell preset would have baked those in and crashed on that machine. Shipped at tools/fast/rvvm_x86_64.exe + tools/fast/librvvm.dll, auto-selected at runtime by launcher/cpufeatures.go (fastRVVMSupported: AVX2+FMA3+AES) instead of the portable baseline above - never distributed as a separate download, so it can never be run on an incompatible CPU. Measured one-shot A/B (boot to login prompt, same hardware): wall time effectively unchanged (41.34s vs 41.53s), CPU time ~3% lower (51.09s vs 49.67s) - a modest, real improvement, not a dramatic one.",
+    "_comment": "Round 4 (docs/phase4-spike-results.md): same RVVM source/commit/patches as 'rvvm' above - only the compiler flags differ, so this is a clean optimization-only variant, not a code fork. Built via image-build/build-rvvm.sh: `make CC=x86_64-w64-mingw32-gcc CFLAGS=\"-mavx -mavx2 -mfma -maes -msse4.2\" USE_LOCK_DEBUG=0`. Deliberately does NOT target BMI1/BMI2 (no -march= preset used) - a real target machine's CPU-Z report showed BMI1/BMI2 masked by its hypervisor despite the underlying silicon supporting it; using a named -march=haswell/broadwell preset would have baked those in and crashed on that machine. Shipped at tools/fast/rvvm_x86_64.exe + tools/fast/librvvm.dll, auto-selected at runtime by launcher/cpufeatures.go (fastRVVMSupported: AVX2+FMA3+AES) instead of the portable baseline above - never distributed as a separate download, so it can never be run on an incompatible CPU. Measured one-shot A/B (boot to login prompt, same hardware): wall time effectively unchanged (41.34s vs 41.53s), CPU time ~3% lower (51.09s vs 49.67s) - a modest, real improvement, not a dramatic one.",
     "commit": "ce8ca7c00ba4058e5f26811057573b3ff23e9316",
+    "patches": ["image-build/patches/0001-win32-resizable-scaled-window.patch"],
     "cflags": "-mavx -mavx2 -mfma -maes -msse4.2",
     "makeVars": "USE_LOCK_DEBUG=0",
     "license": ["GPL-3.0 (rvvm-cli)", "MPL-2.0 (librvvm)"],

@@ -1,0 +1,117 @@
+--- a/src/gui/win32_window.c
++++ b/src/gui/win32_window.c
+@@ -29,7 +29,13 @@
+ 
+ #define WINDOW_CLASS_NAME  TEXT("LEKKIT_GUI_WINDOW")
+ 
+-#define WINDOW_STYLE_FLAGS (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE)
++// Round 5 (LinuxLab): added WS_THICKFRAME | WS_MAXIMIZEBOX so the window can
++// be drag-resized/maximized - win32_window_draw() below scales the guest
++// framebuffer to fit (aspect-ratio-preserving, letterboxed) instead of the
++// upstream 1:1-only SetDIBitsToDevice blit, and WM_MOUSEMOVE below maps
++// client coordinates back into framebuffer space to match.
++#define WINDOW_STYLE_FLAGS \
++    (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME | WS_VISIBLE)
+ 
+ typedef struct {
+     // Window handle
+@@ -223,6 +229,41 @@
+     }
+ }
+ 
++// Round 5 (LinuxLab): shared fit computation between win32_window_draw()
++// (scaled blit) and the WM_MOUSEMOVE handler (inverse-mapping client
++// coords back to framebuffer coords), so a resized window's pointer
++// position stays aligned with what's drawn. Aspect-ratio-preserving,
++// centered (letterboxed/pillarboxed) - same convention as a typical
++// video player's "scaled" view, not a stretch-to-fill that distorts.
++typedef struct {
++    uint32_t dest_w, dest_h;
++    int32_t  off_x, off_y;
++    double   scale;
++} win32_fit_t;
++
++static win32_fit_t win32_compute_fit(HWND hwnd, uint32_t fb_w, uint32_t fb_h)
++{
++    win32_fit_t fit = { fb_w, fb_h, 0, 0, 1.0 };
++    RECT client = ZERO_INIT;
++    if (fb_w && fb_h && GetClientRect(hwnd, &client)) {
++        uint32_t client_w = (uint32_t)(client.right - client.left);
++        uint32_t client_h = (uint32_t)(client.bottom - client.top);
++        if (client_w && client_h) {
++            double sx    = (double)client_w / fb_w;
++            double sy    = (double)client_h / fb_h;
++            double scale = (sx < sy) ? sx : sy;
++            if (scale > 0.0) {
++                fit.scale  = scale;
++                fit.dest_w = (uint32_t)(fb_w * scale);
++                fit.dest_h = (uint32_t)(fb_h * scale);
++                fit.off_x  = (int32_t)((client_w - fit.dest_w) / 2);
++                fit.off_y  = (int32_t)((client_h - fit.dest_h) / 2);
++            }
++        }
++    }
++    return fit;
++}
++
+ static void win32_window_poll(gui_window_t* win)
+ {
+     win32_window_t* win32 = gui_backend_get_data(win);
+@@ -245,8 +286,22 @@
+                         gui_backend_on_mouse_move(win, dx - (dx / 3), dy - (dy / 3));
+                     }
+                 } else {
+-                    POINTS cur = MAKEPOINTS(Msg.lParam);
+-                    gui_backend_on_mouse_place(win, cur.x, cur.y);
++                    POINTS   cur  = MAKEPOINTS(Msg.lParam);
++                    uint32_t fb_w = rvvm_fb_width(&win32->fb);
++                    uint32_t fb_h = rvvm_fb_height(&win32->fb);
++                    if (fb_w && fb_h) {
++                        // Invert the same fit used by win32_window_draw() so
++                        // clicks land where they visually appear even when
++                        // the window is resized away from native resolution.
++                        win32_fit_t fit = win32_compute_fit(win32->hwnd, fb_w, fb_h);
++                        int32_t     x   = (int32_t)((cur.x - fit.off_x) / fit.scale);
++                        int32_t     y   = (int32_t)((cur.y - fit.off_y) / fit.scale);
++                        x = EVAL_MAX(EVAL_MIN(x, (int32_t)fb_w - 1), 0);
++                        y = EVAL_MAX(EVAL_MIN(y, (int32_t)fb_h - 1), 0);
++                        gui_backend_on_mouse_place(win, x, y);
++                    } else {
++                        gui_backend_on_mouse_place(win, cur.x, cur.y);
++                    }
+                 }
+                 break;
+             case WM_KEYDOWN:
+@@ -360,9 +415,29 @@
+             bmi->bmiHeader.biCompression = BI_BITFIELDS;
+         }
+ 
+-        // Draw framebuffer
+-        SetDIBitsToDevice(win32->hdc, x, y, rvvm_fb_width(fb), rvvm_fb_height(fb), 0, 0, 0, //
+-                          rvvm_fb_height(fb), rvvm_fb_buffer(fb), bmi, DIB_RGB_COLORS);
++        // Round 5 (LinuxLab): the window can now be resized (WS_THICKFRAME
++        // above) - if its client area doesn't match the framebuffer's
++        // native size, scale into it instead of the upstream 1:1-only
++        // blit, preserving aspect ratio and letterboxing/pillarboxing any
++        // leftover space. At native size this is a no-op identical to the
++        // original SetDIBitsToDevice blit (StretchDIBits with matching
++        // src/dest dims does the same thing).
++        uint32_t    fb_w = rvvm_fb_width(fb);
++        uint32_t    fb_h = rvvm_fb_height(fb);
++        win32_fit_t fit  = win32_compute_fit(win32->hwnd, fb_w, fb_h);
++
++        if (fit.dest_w != fb_w || fit.dest_h != fb_h || fit.off_x || fit.off_y) {
++            RECT client = ZERO_INIT;
++            GetClientRect(win32->hwnd, &client);
++            FillRect(win32->hdc, &client, (HBRUSH)GetStockObject(BLACK_BRUSH));
++            SetStretchBltMode(win32->hdc, HALFTONE);
++            SetBrushOrgEx(win32->hdc, 0, 0, NULL);
++            StretchDIBits(win32->hdc, fit.off_x, fit.off_y, (int)fit.dest_w, (int)fit.dest_h, //
++                         0, 0, (int)fb_w, (int)fb_h, rvvm_fb_buffer(fb), bmi, DIB_RGB_COLORS, SRCCOPY);
++        } else {
++            SetDIBitsToDevice(win32->hdc, x, y, fb_w, fb_h, 0, 0, 0, //
++                              fb_h, rvvm_fb_buffer(fb), bmi, DIB_RGB_COLORS);
++        }
+         safe_free(bmi);
+         win32->fb = *fb;
+     }
