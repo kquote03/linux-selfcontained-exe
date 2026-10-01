@@ -6,7 +6,7 @@
  
 -#define WINDOW_STYLE_FLAGS (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE)
 +// Round 5 (LinuxLab): added WS_THICKFRAME | WS_MAXIMIZEBOX so the window can
-+// be drag-resized/maximized - win32_window_draw() below scales the guest
++// be drag-resized/maximized - win32_present() below scales the guest
 +// framebuffer to fit (aspect-ratio-preserving, letterboxed) instead of the
 +// upstream 1:1-only SetDIBitsToDevice blit, and WM_MOUSEMOVE below maps
 +// client coordinates back into framebuffer space to match.
@@ -15,16 +15,16 @@
  
  typedef struct {
      // Window handle
-@@ -223,6 +229,41 @@
-     }
- }
+@@ -45,6 +51,50 @@
+     bool grab;
+ } win32_window_t;
  
-+// Round 5 (LinuxLab): shared fit computation between win32_window_draw()
-+// (scaled blit) and the WM_MOUSEMOVE handler (inverse-mapping client
-+// coords back to framebuffer coords), so a resized window's pointer
-+// position stays aligned with what's drawn. Aspect-ratio-preserving,
-+// centered (letterboxed/pillarboxed) - same convention as a typical
-+// video player's "scaled" view, not a stretch-to-fill that distorts.
++// Round 5 (LinuxLab): aspect-ratio-preserving "fit" computation shared by
++// win32_present() (scaled blit) and the WM_MOUSEMOVE handler (inverse-
++// mapping client coords back to framebuffer coords), so a resized
++// window's pointer position stays aligned with what's drawn. Centered
++// (letterboxed/pillarboxed) - same convention as a typical video player's
++// "scaled" view, not a stretch-to-fill that distorts.
 +typedef struct {
 +    uint32_t dest_w, dest_h;
 +    int32_t  off_x, off_y;
@@ -54,10 +54,39 @@
 +    return fit;
 +}
 +
- static void win32_window_poll(gui_window_t* win)
- {
-     win32_window_t* win32 = gui_backend_get_data(win);
-@@ -245,8 +286,22 @@
++// Forward-declared: defined after win32_handle_formats() below, but
++// win32_wndproc() (defined next) needs to call it from its WM_SIZE
++// handler, to keep content in sync during a *live* interactive resize
++// drag - RVVM's own poll()/draw() loop doesn't run while Windows' modal
++// resize loop has control, so without this the window frame resizes
++// instantly but the picture inside it only catches up once the drag
++// ends, which reads as a flicker/flash between the two.
++static void win32_present(win32_window_t* win32);
++
+ static ATOM win32_atom = 0;
+ 
+ static const hid_key_t win32_key_to_hid_byte_map[] = {
+@@ -180,6 +230,19 @@
+             // This is an ugly fucking way to handle WM_KILLFOCUS via PeekMessage()
+             PostMessage(hwnd, WM_KILLFOCUS, wParam, lParam);
+             return 0;
++        case WM_ERASEBKGND:
++            // Round 5 (LinuxLab): we always repaint the whole client area
++            // ourselves (double-buffered, see win32_present()) - skip the
++            // default background erase, which would otherwise flash a
++            // blank frame right before our own redraw on every resize.
++            return 1;
++        case WM_SIZE: {
++            win32_window_t* win32 = (win32_window_t*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
++            if (win32) {
++                win32_present(win32);
++            }
++            break;
++        }
+     }
+ 
+     if (uMsg == WM_SETCURSOR && LOWORD(lParam) == HTCLIENT) {
+@@ -245,8 +308,22 @@
                          gui_backend_on_mouse_move(win, dx - (dx / 3), dy - (dy / 3));
                      }
                  } else {
@@ -67,7 +96,7 @@
 +                    uint32_t fb_w = rvvm_fb_width(&win32->fb);
 +                    uint32_t fb_h = rvvm_fb_height(&win32->fb);
 +                    if (fb_w && fb_h) {
-+                        // Invert the same fit used by win32_window_draw() so
++                        // Invert the same fit used by win32_present() so
 +                        // clicks land where they visually appear even when
 +                        // the window is resized away from native resolution.
 +                        win32_fit_t fit = win32_compute_fit(win32->hwnd, fb_w, fb_h);
@@ -82,36 +111,116 @@
                  }
                  break;
              case WM_KEYDOWN:
-@@ -360,9 +415,29 @@
-             bmi->bmiHeader.biCompression = BI_BITFIELDS;
-         }
+@@ -341,30 +418,83 @@
+     return false;
+ }
  
++// Round 5 (LinuxLab): composes the current frame into an off-screen
++// memory DC sized to the live client area (scaling into it, letterboxed,
++// if the window has been resized away from the framebuffer's native
++// size - see win32_compute_fit()), then presents it with a single BitBlt.
++// Double-buffering this way - rather than erasing/drawing straight on
++// the window DC - is what actually fixes the resize flicker: a direct-
++// to-screen draw is visible mid-composition (briefly black, then the
++// picture), especially when WM_SIZE below re-triggers it on every step
++// of a live drag; one atomic BitBlt never shows a partial frame.
++//
++// Also called directly from win32_wndproc()'s WM_SIZE handler (not just
++// from the normal RVVM poll()/draw() loop) using the last-known
++// framebuffer (win32->fb) - Windows runs its own modal loop for an
++// interactive border-drag resize, which blocks RVVM's own loop from
++// running, so without this the window frame would resize instantly while
++// the picture inside only caught up once the drag ended.
++static void win32_present(win32_window_t* win32)
++{
++    const rvvm_fb_t* fb = &win32->fb;
++    if (!win32->hdc || !rvvm_fb_buffer(fb)) {
++        return;
++    }
++
++    RECT client = ZERO_INIT;
++    GetClientRect(win32->hwnd, &client);
++    int client_w = (int)(client.right - client.left);
++    int client_h = (int)(client.bottom - client.top);
++    if (client_w <= 0 || client_h <= 0) {
++        return;
++    }
++
++    uint32_t    fb_w = rvvm_fb_width(fb);
++    uint32_t    fb_h = rvvm_fb_height(fb);
++    win32_fit_t fit  = win32_compute_fit(win32->hwnd, fb_w, fb_h);
++
++    HDC     mem_dc  = CreateCompatibleDC(win32->hdc);
++    HBITMAP mem_bmp = CreateCompatibleBitmap(win32->hdc, client_w, client_h);
++    HBITMAP old_bmp = (HBITMAP)SelectObject(mem_dc, mem_bmp);
++
++    BITMAPINFO* bmi = (BITMAPINFO*)safe_calloc(1, sizeof(BITMAPINFO) + (sizeof(DWORD) * 3));
++    bmi->bmiHeader.biSize     = sizeof(BITMAPINFOHEADER);
++    bmi->bmiHeader.biWidth    = rvvm_fb_stride(fb) / rvvm_fb_rgb_bytes(fb);
++    bmi->bmiHeader.biHeight   = -(int)fb_h;
++    bmi->bmiHeader.biPlanes   = 1;
++    bmi->bmiHeader.biBitCount = rvvm_fb_rgb_bpp(fb);
++    if (win32_handle_formats(bmi, fb)) {
++        bmi->bmiHeader.biCompression = BI_BITFIELDS;
++    }
++
++    if (fit.dest_w != fb_w || fit.dest_h != fb_h || fit.off_x || fit.off_y) {
++        RECT full = { 0, 0, client_w, client_h };
++        FillRect(mem_dc, &full, (HBRUSH)GetStockObject(BLACK_BRUSH));
++        SetStretchBltMode(mem_dc, HALFTONE);
++        SetBrushOrgEx(mem_dc, 0, 0, NULL);
++        StretchDIBits(mem_dc, fit.off_x, fit.off_y, (int)fit.dest_w, (int)fit.dest_h, //
++                     0, 0, (int)fb_w, (int)fb_h, rvvm_fb_buffer(fb), bmi, DIB_RGB_COLORS, SRCCOPY);
++    } else {
++        SetDIBitsToDevice(mem_dc, 0, 0, fb_w, fb_h, 0, 0, 0, //
++                          fb_h, rvvm_fb_buffer(fb), bmi, DIB_RGB_COLORS);
++    }
++    safe_free(bmi);
++
++    BitBlt(win32->hdc, 0, 0, client_w, client_h, mem_dc, 0, 0, SRCCOPY);
++
++    SelectObject(mem_dc, old_bmp);
++    DeleteObject(mem_bmp);
++    DeleteDC(mem_dc);
++}
++
+ static void win32_window_draw(gui_window_t* win, const rvvm_fb_t* fb, uint32_t x, uint32_t y)
+ {
+     win32_window_t* win32 = gui_backend_get_data(win);
++    UNUSED(x);
++    UNUSED(y);
+     if (rvvm_fb_buffer(fb)) {
+-        // Bitmap info structure
+-        BITMAPINFO* bmi = (BITMAPINFO*)safe_calloc(1, sizeof(BITMAPINFO) + (sizeof(DWORD) * 3));
+-
+-        // Initialize bitmap info
+-        bmi->bmiHeader.biSize     = sizeof(BITMAPINFOHEADER);
+-        bmi->bmiHeader.biWidth    = rvvm_fb_stride(fb) / rvvm_fb_rgb_bytes(fb);
+-        bmi->bmiHeader.biHeight   = -rvvm_fb_height(fb);
+-        bmi->bmiHeader.biPlanes   = 1;
+-        bmi->bmiHeader.biBitCount = rvvm_fb_rgb_bpp(fb);
+-
+-        // Handle special framebuffer formats
+-        if (win32_handle_formats(bmi, fb)) {
+-            bmi->bmiHeader.biCompression = BI_BITFIELDS;
+-        }
+-
 -        // Draw framebuffer
 -        SetDIBitsToDevice(win32->hdc, x, y, rvvm_fb_width(fb), rvvm_fb_height(fb), 0, 0, 0, //
 -                          rvvm_fb_height(fb), rvvm_fb_buffer(fb), bmi, DIB_RGB_COLORS);
-+        // Round 5 (LinuxLab): the window can now be resized (WS_THICKFRAME
-+        // above) - if its client area doesn't match the framebuffer's
-+        // native size, scale into it instead of the upstream 1:1-only
-+        // blit, preserving aspect ratio and letterboxing/pillarboxing any
-+        // leftover space. At native size this is a no-op identical to the
-+        // original SetDIBitsToDevice blit (StretchDIBits with matching
-+        // src/dest dims does the same thing).
-+        uint32_t    fb_w = rvvm_fb_width(fb);
-+        uint32_t    fb_h = rvvm_fb_height(fb);
-+        win32_fit_t fit  = win32_compute_fit(win32->hwnd, fb_w, fb_h);
-+
-+        if (fit.dest_w != fb_w || fit.dest_h != fb_h || fit.off_x || fit.off_y) {
-+            RECT client = ZERO_INIT;
-+            GetClientRect(win32->hwnd, &client);
-+            FillRect(win32->hdc, &client, (HBRUSH)GetStockObject(BLACK_BRUSH));
-+            SetStretchBltMode(win32->hdc, HALFTONE);
-+            SetBrushOrgEx(win32->hdc, 0, 0, NULL);
-+            StretchDIBits(win32->hdc, fit.off_x, fit.off_y, (int)fit.dest_w, (int)fit.dest_h, //
-+                         0, 0, (int)fb_w, (int)fb_h, rvvm_fb_buffer(fb), bmi, DIB_RGB_COLORS, SRCCOPY);
-+        } else {
-+            SetDIBitsToDevice(win32->hdc, x, y, fb_w, fb_h, 0, 0, 0, //
-+                              fb_h, rvvm_fb_buffer(fb), bmi, DIB_RGB_COLORS);
-+        }
-         safe_free(bmi);
+-        safe_free(bmi);
          win32->fb = *fb;
++        win32_present(win32);
      }
+ }
+ 
+@@ -466,6 +596,9 @@
+     // Obtain device context
+     if (win32->hwnd) {
+         win32->hdc = GetDC(win32->hwnd);
++        // Round 5 (LinuxLab): lets win32_wndproc()'s WM_SIZE handler find
++        // this window's state and redraw immediately during a live resize.
++        SetWindowLongPtr(win32->hwnd, GWLP_USERDATA, (LONG_PTR)win32);
+     }
+ 
+     if (!win32->hwnd || !win32->hdc) {
