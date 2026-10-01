@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -24,17 +25,31 @@ func setHighPerfPowerPlan() {
 	_ = exec.Command("powercfg", "/setactive", highPerfPowerPlanGUID).Run()
 }
 
+// rvvmExePath picks the CPU-targeted RVVM build (tools/fast/ - AVX2/FMA3/
+// AES, see docs/phase4-spike-results.md) when the host CPU supports it and
+// the payload actually included it, falling back to the portable stock
+// build otherwise. Returns the exe path; the DLL sits alongside it.
+func rvvmExePath(toolsDir string) string {
+	if fastRVVMSupported() {
+		fastExe := filepath.Join(toolsDir, "fast", "rvvm_x86_64.exe")
+		if _, err := os.Stat(fastExe); err == nil {
+			return fastExe
+		}
+	}
+	return filepath.Join(toolsDir, "rvvm_x86_64.exe")
+}
+
 // runRVVM launches RVVM as a child process with the given tools/disk paths
 // and config, and blocks until it exits. librvvm.dll is resolved by
 // Windows via the standard "same directory as the exe" DLL search rule, so
-// no special working-directory handling is needed as long as it sits next
-// to rvvm_x86_64.exe in toolsDir (which extractTools guarantees).
+// cmd.Dir is set to whichever directory holds the chosen exe (extractTools
+// guarantees the matching DLL sits right next to it).
 func runRVVM(toolsDir, diskImagePath string, cfg config) error {
 	if cfg.SetHighPerfPowerPlan {
 		setHighPerfPowerPlan()
 	}
 
-	exePath := filepath.Join(toolsDir, "rvvm_x86_64.exe")
+	exePath := rvvmExePath(toolsDir)
 	firmwarePath := filepath.Join(toolsDir, "fw_payload.bin")
 
 	args := []string{
@@ -51,7 +66,7 @@ func runRVVM(toolsDir, diskImagePath string, cfg config) error {
 	}
 
 	cmd := exec.Command(exePath, args...)
-	cmd.Dir = toolsDir
+	cmd.Dir = filepath.Dir(exePath)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting RVVM: %w", err)

@@ -145,10 +145,17 @@ autologin. See `docs/phase1-evidence/05-final-packaged-exe-boot.png`. Rough
 timing observed: ~1-2 minutes for first-run disk image decompression
 (8GB output from a 1.25GB compressed payload) plus ~60-90s guest boot to
 desktop - call it "a few minutes, give it time" for instructor-facing
-expectations. This figure predates the Round 3 weak-hardware tuning pass
-(`docs/phase3-spike-results.md`) and was measured on a dev machine, not
-genuinely weak target hardware - real-world timing on the actual 2-core/
-2GB deployment targets is still unmeasured.
+expectations. This figure predates the Round 3/4 weak-hardware tuning
+passes (`docs/phase3-spike-results.md`, `docs/phase4-spike-results.md`)
+and was measured on a dev machine, not genuinely weak target hardware -
+real-world timing on the actual deployment targets is still unmeasured.
+Round 4 shrunk the shipped disk image from 8GB to 4GB (sized against
+measured rootfs usage, ~2.2GB) after a real target machine's CPU-Z report
+showed only ~12GB free disk on a representative deployment machine -
+cuts per-launch decompression/disk-write time, though the *compressed*
+`disk.img.zst` stayed about the same size (~1.07GB either way, since
+zstd already compressed the old image's empty padding down to nearly
+nothing - the real content dominates either way).
 
 - Launcher: a compiled Go executable (not NSIS/Inno/7z SFX) — the runtime
   needs real logic (per-run scratch copy, crash-cleanup sweep, child-process
@@ -158,9 +165,12 @@ genuinely weak target hardware - real-world timing on the actual 2-core/
   console to print to).
 - Payload too large for `go:embed`; `packaging/package.ps1` concatenates the
   compiled launcher with a zip payload (`tools/rvvm_x86_64.exe`,
-  `tools/librvvm.dll`, `tools/fw_payload.bin`, `disk.img.zst`, `VERSION`)
-  plus a 64-byte trailing footer (`launcher/payload.go` parses it via seek —
-  magic bytes, payload offset/size, format version).
+  `tools/librvvm.dll`, `tools/fw_payload.bin`, `disk.img.zst`, `VERSION`,
+  plus optionally `tools/fast/rvvm_x86_64.exe` + `tools/fast/librvvm.dll` -
+  a CPU-targeted RVVM build added in Round 4, see
+  `docs/phase4-spike-results.md`) plus a 64-byte trailing footer
+  (`launcher/payload.go` parses it via seek — magic bytes, payload
+  offset/size, format version).
 - Runtime flow (`launcher/main.go`): locate payload via footer → extract
   static tool artifacts to a cached `%LOCALAPPDATA%\LinuxLab\tools\<version>`
   dir (skipped if already present, keyed by the `VERSION` string baked into
@@ -170,12 +180,17 @@ genuinely weak target hardware - real-world timing on the actual 2-core/
   Windows' own file locking rather than reimplementing PID liveness checks)
   → decompress a fresh copy of the pristine disk image into a new per-run
   scratch dir every launch (zstd, via `github.com/klauspost/compress/zstd`)
-  → launch RVVM as a child process with conservative, `config.ini`-overridable
-  defaults (`launcher/config.go`; RAM default 1G, 2 cores, 1024x768 —
-  tuned in Round 3 for weak 2-core/2GB-RAM lab targets, see
-  `docs/phase3-spike-results.md`, plus a fixed `-nosound`/`-nogpu` since
-  this appliance has no audio/GPU requirement, plus an opt-in
-  `set_high_perf_power_plan` flag and an `extra_args` passthrough for
+  → pick between the portable baseline RVVM build and a CPU-targeted one
+  (`launcher/rvvm.go`'s `rvvmExePath`, gated on `launcher/cpufeatures.go`'s
+  `fastRVVMSupported` - AVX2/FMA3/AES runtime detection via
+  `golang.org/x/sys/cpu`, Round 4) → launch RVVM as a child process with
+  conservative, `config.ini`-overridable defaults (`launcher/config.go`;
+  RAM default 1G, 2 cores, 800x600 — tuned in Round 3/4 against a real
+  target machine's measured hardware profile, see
+  `docs/phase3-spike-results.md` and `docs/phase4-spike-results.md`, plus
+  a fixed `-nosound`/`-nogpu` since this appliance has no audio/GPU
+  requirement, plus an opt-in `set_high_perf_power_plan` flag and an
+  `extra_args` passthrough for
   further RVVM flag tuning without a launcher rebuild) → on exit, delete
   the per-run scratch dir.
 - No admin rights: only touches `%LOCALAPPDATA%`, spawns a plain child

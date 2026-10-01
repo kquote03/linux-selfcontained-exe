@@ -28,13 +28,20 @@ type config struct {
 // minutes vs. ~60-90s for -smp 2 on the same hardware - RVVM's docs give
 // no guidance either way, but the measured result favors 2 cores even on
 // a 2-core host, so that's the default (see docs/phase3-spike-results.md).
-// An instructor on faster/slower fleets can override either in
-// config.ini - no rebuild needed.
+// Resolution dropped to 800x600 in Round 4: a real target machine's CPU-Z
+// report showed a fully non-accelerated Cirrus Logic VGA display chain
+// with zero GPU acceleration at any layer, so fewer pixels means less
+// software blit work; visually confirmed XFCE still renders cleanly at
+// this size. RAM was reconsidered but kept at 1G in Round 4 after
+// confirming zram shows 0B used at an idle desktop - there's no swap
+// pressure at the current default to relieve by raising it (see
+// docs/phase4-spike-results.md). An instructor on faster/slower fleets
+// can override any of these in config.ini - no rebuild needed.
 func defaultConfig() config {
 	return config{
 		RAM:                  "1G",
 		Cores:                "2",
-		Resolution:           "1024x768",
+		Resolution:           "800x600",
 		ExtraArgs:            "",
 		SetHighPerfPowerPlan: false,
 	}

@@ -25,7 +25,14 @@ param(
     [Parameter(Mandatory = $true)][string]$Firmware,
     [Parameter(Mandatory = $true)][string]$DiskImageZst,
     [Parameter(Mandatory = $true)][string]$Version,
-    [Parameter(Mandatory = $true)][string]$OutFile
+    [Parameter(Mandatory = $true)][string]$OutFile,
+    # Optional CPU-targeted RVVM build (AVX2/FMA3/AES - see
+    # docs/phase4-spike-results.md), auto-selected at runtime by the
+    # launcher when the host CPU supports it. Both must be supplied
+    # together, or neither - the launcher falls back to the stock build
+    # above if this pair isn't present in the payload.
+    [string]$RvvmFastExe,
+    [string]$RvvmFastDll
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +41,17 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 foreach ($f in @($LauncherExe, $RvvmExe, $RvvmDll, $Firmware, $DiskImageZst)) {
     if (-not (Test-Path $f)) { throw "Input file not found: $f" }
+}
+
+$includeFast = $false
+if ($RvvmFastExe -or $RvvmFastDll) {
+    if (-not ($RvvmFastExe -and $RvvmFastDll)) {
+        throw "RvvmFastExe and RvvmFastDll must be supplied together"
+    }
+    foreach ($f in @($RvvmFastExe, $RvvmFastDll)) {
+        if (-not (Test-Path $f)) { throw "Input file not found: $f" }
+    }
+    $includeFast = $true
 }
 
 $tmpZip = [System.IO.Path]::GetTempFileName()
@@ -45,6 +63,10 @@ try {
     [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $RvvmExe, "tools/rvvm_x86_64.exe", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
     [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $RvvmDll, "tools/librvvm.dll", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
     [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $Firmware, "tools/fw_payload.bin", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+    if ($includeFast) {
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $RvvmFastExe, "tools/fast/rvvm_x86_64.exe", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $RvvmFastDll, "tools/fast/librvvm.dll", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+    }
     # disk.img.zst is already zstd-compressed - don't ask the zip format to
     # recompress already-compressed bytes, just store it.
     [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $DiskImageZst, "disk.img.zst", [System.IO.Compression.CompressionLevel]::NoCompression) | Out-Null

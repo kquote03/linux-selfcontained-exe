@@ -21,3 +21,10 @@ scratch_pkgtest/
 .vscode/
 *.log
 Thumbs.db
+
+# Claude Code local session/plan state - not project content
+.claude/
+
+# Hardware reports supplied for tuning reference - contain machine-
+# identifying data (DMI UUID/serial), kept local rather than committed
+cpuz-report.txt

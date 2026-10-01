@@ -21,6 +21,20 @@ var toolFiles = []string{
 	"tools/fw_payload.bin",
 }
 
+// optionalToolFiles are extracted best-effort if present in the payload,
+// without failing the whole launch if they're missing (e.g. an older or
+// fast-build-less test package). The CPU-targeted RVVM build (AVX2/FMA3/
+// AES, no BMI2 assumed - see docs/phase4-spike-results.md) is used instead
+// of the stock rvvm_x86_64.exe/librvvm.dll above when fastRVVMSupported()
+// reports the host CPU can run it (see rvvmExePath in rvvm.go). Kept in
+// its own subdirectory since both builds export the same DLL filename and
+// Windows resolves "librvvm.dll" from the launching exe's own directory -
+// they can't sit side by side in the same folder.
+var optionalToolFiles = []string{
+	"tools/fast/rvvm_x86_64.exe",
+	"tools/fast/librvvm.dll",
+}
+
 const diskImageEntry = "disk.img.zst"
 
 // progressFunc reports extraction progress: percent is 0-100, status is a
@@ -128,11 +142,33 @@ func extractTools(zr *zip.Reader, base, version string, progress progressFunc) (
 		if progress != nil {
 			progress(percentOf(done, totalSize), "Extracting emulator files...")
 		}
-		if err := extractZipEntry(zr, entry, filepath.Join(toolsDir, filepath.Base(entry))); err != nil {
+		// Preserve the path under "tools/" (not just the basename) so the
+		// "fast/" subdirectory entries don't collide with the identically-
+		// named stock rvvm_x86_64.exe/librvvm.dll at the tools dir root.
+		relPath := strings.TrimPrefix(entry, "tools/")
+		destPath := filepath.Join(toolsDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+			return "", fmt.Errorf("creating dir for %s: %w", entry, err)
+		}
+		if err := extractZipEntry(zr, entry, destPath); err != nil {
 			return "", fmt.Errorf("extracting %s: %w", entry, err)
 		}
 		done += sizes[entry]
 	}
+	for _, entry := range optionalToolFiles {
+		if _, err := findZipFile(zr, entry); err != nil {
+			continue // not present in this payload - fine, stock build is used instead
+		}
+		relPath := strings.TrimPrefix(entry, "tools/")
+		destPath := filepath.Join(toolsDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+			return "", fmt.Errorf("creating dir for %s: %w", entry, err)
+		}
+		if err := extractZipEntry(zr, entry, destPath); err != nil {
+			return "", fmt.Errorf("extracting %s: %w", entry, err)
+		}
+	}
+
 	if progress != nil {
 		progress(100, "Extracting emulator files...")
 	}

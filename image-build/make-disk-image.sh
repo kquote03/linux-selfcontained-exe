@@ -6,10 +6,16 @@ set -euo pipefail
 BUILD_DIR="/root/build"
 ROOTFS="$BUILD_DIR/rootfs"
 IMG="$BUILD_DIR/disk.img"
+# Sized against actual measured rootfs usage (~2.2G as of Round 4), not a
+# round number picked in advance - see docs/phase4-spike-results.md. ~1.8x
+# margin over measured usage for zram/logs/student files/apt work without
+# immediately running out, while staying well clear of real target
+# machines seen with only ~12GB of free disk space total.
+IMG_SIZE="${IMG_SIZE:-4G}"
 
 losetup -D || true
 
-truncate -s 8G "$IMG"
+truncate -s "$IMG_SIZE" "$IMG"
 parted -s "$IMG" mklabel gpt mkpart primary ext4 1MiB 100%
 
 LOOP=$(losetup -fP --show "$IMG")
