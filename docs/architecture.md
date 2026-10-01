@@ -101,7 +101,8 @@ build fully scriptable. Run in order: `image-build/build-rootfs.sh` →
 - Install: `linux-image-riscv64`; curated XFCE (`xfce4` core +
   `xfce4-terminal` + `mousepad`, skipping `xfce4-goodies`, printing,
   Bluetooth, media players — no browser); `openssh-server`, `curl`,
-  `iputils-ping`.
+  `iputils-ping`; `systemd-zram-generator` (compressed RAM-backed swap,
+  Round 3 weak-hardware tuning).
 - Disable the XFCE compositor by default (weak/emulated hardware).
 - Networking via `systemd-networkd` with plain DHCP.
 - Autologin via `lightdm` (`autologin-user=student`, in `sudo` group — "no
@@ -114,7 +115,12 @@ build fully scriptable. Run in order: `image-build/build-rootfs.sh` →
   fallback if a pruned boot ever fails (`MODULES=most` is a one-line
   revert, no kernel rebuild needed).
 - Disable `apt-daily*.timer`, `bluetooth`, `cups`, `ModemManager`,
-  `avahi-daemon`, `man-db.timer`.
+  `avahi-daemon`, `man-db.timer`, plus (Round 3) `tracker-miner-fs`/
+  `tracker-extract`, `at-spi-dbus-bus`, `packagekit` if present.
+- zram swap (~half of guest RAM, zstd-compressed), volatile `journald`
+  storage (`Storage=volatile`, 16M cap), and `scheduler=none` + reduced
+  readahead on the guest's virtual NVMe device — all Round 3 weak-hardware
+  tuning, see `docs/phase3-spike-results.md`.
 - Image format: GPT-partitioned single ext4 filesystem with an extlinux
   bootloader config (`image-build/make-disk-image.sh` writes
   `/boot/extlinux/extlinux.conf`). RVVM is invoked with `-i <image>` (not
@@ -139,7 +145,10 @@ autologin. See `docs/phase1-evidence/05-final-packaged-exe-boot.png`. Rough
 timing observed: ~1-2 minutes for first-run disk image decompression
 (8GB output from a 1.25GB compressed payload) plus ~60-90s guest boot to
 desktop - call it "a few minutes, give it time" for instructor-facing
-expectations, not yet tuned or measured on genuinely weak target hardware.
+expectations. This figure predates the Round 3 weak-hardware tuning pass
+(`docs/phase3-spike-results.md`) and was measured on a dev machine, not
+genuinely weak target hardware - real-world timing on the actual 2-core/
+2GB deployment targets is still unmeasured.
 
 - Launcher: a compiled Go executable (not NSIS/Inno/7z SFX) — the runtime
   needs real logic (per-run scratch copy, crash-cleanup sweep, child-process
@@ -162,15 +171,27 @@ expectations, not yet tuned or measured on genuinely weak target hardware.
   → decompress a fresh copy of the pristine disk image into a new per-run
   scratch dir every launch (zstd, via `github.com/klauspost/compress/zstd`)
   → launch RVVM as a child process with conservative, `config.ini`-overridable
-  defaults (`launcher/config.go`; RAM/cores/resolution, plus a fixed
-  `-nosound` since this appliance has no audio requirement, plus an
-  optional `extra_args` passthrough for further RVVM flag tuning without a
-  launcher rebuild) → on exit, delete the per-run scratch dir.
+  defaults (`launcher/config.go`; RAM default 1G, 2 cores, 1024x768 —
+  tuned in Round 3 for weak 2-core/2GB-RAM lab targets, see
+  `docs/phase3-spike-results.md`, plus a fixed `-nosound`/`-nogpu` since
+  this appliance has no audio/GPU requirement, plus an opt-in
+  `set_high_perf_power_plan` flag and an `extra_args` passthrough for
+  further RVVM flag tuning without a launcher rebuild) → on exit, delete
+  the per-run scratch dir.
 - No admin rights: only touches `%LOCALAPPDATA%`, spawns a plain child
   process, no registry/service/`Program Files` writes.
 - Ship `THIRD_PARTY_NOTICES/` for RVVM (GPL-3.0/MPL-2.0), OpenSBI (BSD-2), and
   Debian's kernel packages (GPL-2.0). Pinned versions/commits recorded in
   `packaging/payload-manifest.json`.
+- **Deploying on weak hardware** (Round 3): on genuinely dual-core lab
+  machines, set `set_high_perf_power_plan=true` in `config.ini` (or
+  manually switch Windows to the "High performance" power plan) — RVVM has
+  a maintainer-confirmed issue where a throttled CPU governor
+  disproportionately slows the guest (LekKit/RVVM#138). Defaults already
+  target this profile (1G guest RAM, `-nogpu`); `cores` can be lowered from
+  the default of 2 via `config.ini` if ever needed, though empirical
+  testing in `docs/phase3-spike-results.md` found 2 cores booted
+  noticeably faster than 1, even on a host with only 2 physical cores.
 - Expect a Windows SmartScreen warning (unsigned exe) and possibly a Windows
   Firewall prompt (RVVM's usermode networking) on first run — documented for
   instructors, not blockers.

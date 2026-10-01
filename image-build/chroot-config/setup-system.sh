@@ -74,10 +74,34 @@ systemctl enable ssh
 for svc in bluetooth.service cups.service cups-browsed.service \
            ModemManager.service avahi-daemon.service \
            apt-daily.timer apt-daily-upgrade.timer man-db.timer \
-           e2scrub_all.timer NetworkManager.service NetworkManager-wait-online.service; do
+           e2scrub_all.timer NetworkManager.service NetworkManager-wait-online.service \
+           tracker-miner-fs-3.service tracker-extract-3.service tracker-miner-fs-control-3.service \
+           tracker-xdg-portal-3.service tracker-writeback-3.service \
+           at-spi-dbus-bus.service packagekit.service; do
   systemctl disable "$svc" 2>/dev/null || true
   systemctl mask "$svc" 2>/dev/null || true
 done
+
+# --- zram: compressed RAM-backed swap instead of a disk-backed swap file ---
+# Round 3 (weak-hardware tuning): default guest RAM is only 1G, so a little
+# swap headroom avoids OOM-killing XFCE under load. zram is far cheaper than
+# disk swap against RVVM's emulated NVMe, and systemd-zram-generator's own
+# default sizing (min(ram/2, 4096)) already lands at a sensible ~512M here.
+cat > /etc/systemd/zram-generator.conf <<'EOF'
+[zram0]
+compression-algorithm = zstd
+EOF
+
+# --- journald: volatile (RAM-only) storage, no disk I/O for logging ---
+sed -i 's/^#\?Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
+sed -i 's/^#\?RuntimeMaxUse=.*/RuntimeMaxUse=16M/' /etc/systemd/journald.conf
+
+# --- I/O scheduler/readahead: tuned for RVVM's emulated NVMe, not real disk ---
+# There's no seek cost to optimize for on an emulated block device, so
+# "none" (no scheduling overhead) and a small readahead avoid wasted work.
+cat > /etc/udev/rules.d/60-nvme-scheduler.rules <<'EOF'
+ACTION=="add|change", KERNEL=="nvme[0-9]n[0-9]", ATTR{queue/scheduler}="none", ATTR{bdi/read_ahead_kb}="128"
+EOF
 
 # --- initramfs: curated module list instead of MODULES=most ---
 # MODULES=most ships literally every module Debian's generic kernel has,

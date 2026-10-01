@@ -37,7 +37,8 @@ chroot "$ROOTFS" apt-get update
 echo "=== Install kernel + XFCE4 + CLI tools ==="
 chroot "$ROOTFS" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends linux-image-riscv64
 chroot "$ROOTFS" env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  xfce4 xfce4-terminal mousepad lightdm openssh-server curl iputils-ping sudo
+  xfce4 xfce4-terminal mousepad lightdm openssh-server curl iputils-ping sudo \
+  systemd-zram-generator
 
 echo "=== System configuration (autologin, networking, disabled services, plymouth removal) ==="
 cp "$SCRIPT_DIR"/chroot-config/setup-system.sh "$ROOTFS"/tmp/setup-system.sh

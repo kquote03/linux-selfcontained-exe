@@ -73,6 +73,16 @@ cp "$DEBIAN_CONFIG" .config
 ./scripts/config --set-str CONFIG_LOCALVERSION "$LOCALVERSION"
 ./scripts/config --disable CONFIG_LOCALVERSION_AUTO
 
+# zram (Round 3, weak-hardware tuning): compressed RAM-backed swap, set up
+# guest-side by setup-system.sh's systemd-zram-generator config. Debian's
+# own seed config almost certainly already ships these as modules - module
+# is fine here (unlike the display/input drivers above, zram isn't needed
+# before root is mounted, so it's not a modprobe-race risk) - but force
+# them on if the seed config is missing any piece of the chain.
+./scripts/config --module CONFIG_ZRAM
+./scripts/config --module CONFIG_ZSMALLOC
+./scripts/config --module CONFIG_CRYPTO_ZSTD
+
 echo "=== Trimming large irrelevant driver trees (GPU vendors, non-Realtek NICs, legacy SCSI/FC, wireless) ==="
 ./scripts/config --disable CONFIG_DRM_AMDGPU
 ./scripts/config --disable CONFIG_DRM_RADEON
@@ -106,6 +116,8 @@ grep -qE "^CONFIG_R8169=" .config || { echo "ERROR: CONFIG_R8169 missing (RVVM's
 grep -qE "^CONFIG_I2C_OCORES=y" .config || { echo "ERROR: CONFIG_I2C_OCORES not enabled"; exit 1; }
 grep -qE "^CONFIG_I2C_HID=y" .config || { echo "ERROR: CONFIG_I2C_HID not enabled"; exit 1; }
 grep -qE "^CONFIG_I2C_HID_OF=y" .config || { echo "ERROR: CONFIG_I2C_HID_OF not enabled (this is the glue driver for RVVM's DT-described hid-over-i2c input devices)"; exit 1; }
+grep -qE "^CONFIG_ZRAM=(y|m)" .config || { echo "ERROR: CONFIG_ZRAM not enabled (needed for Round 3's low-RAM guest swap)"; exit 1; }
+grep -qE "^CONFIG_ZSMALLOC=(y|m)" .config || { echo "ERROR: CONFIG_ZSMALLOC not enabled (zram dependency)"; exit 1; }
 
 echo "=== Verifying perf-hardening options were dropped (soft check - informational only) ==="
 for opt in CONFIG_AUDIT CONFIG_IMA CONFIG_EVM CONFIG_SECURITY_APPARMOR; do
